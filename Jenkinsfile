@@ -40,7 +40,7 @@ pipeline {
             steps {
                 script {
                     echo "Initializing Terraform..."
-                    sh 'terraform init''
+                    sh 'terraform init'
                 }
             }
         }
