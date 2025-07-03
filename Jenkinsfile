@@ -13,7 +13,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 echo 'Checking out code from repository...'
-                git url: 'https://github.com/ajitpunchhi/Terraformgcp.git' branch: 'main'
+                git url: 'https://github.com/ajitpunchhi/Terraformgcp.git', branch: 'main'
                 echo 'Code checked out successfully.'
             }
         }
