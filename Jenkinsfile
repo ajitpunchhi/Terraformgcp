@@ -2,80 +2,48 @@ pipeline {
     agent any
     
     environment {
-        // GCP Service Account credentials stored in Jenkins
+        // Define environment variables
         GOOGLE_APPLICATION_CREDENTIALS = credentials('gcp-service-account-key')
-        
-        // GCP Project Configuration
-        GCP_PROJECT_ID = 'my-terraform-456814'
-        GCP_REGION = 'us-central1'
-        
-        // Terraform Backend Configuration
-        TF_STATE_BUCKET = 'ajitgcpterraform'
-        TF_STATE_PREFIX = 'terraform/state'
-        
-        // Environment-specific settings
-        ENVIRONMENT = "${env.BRANCH_NAME == 'main'}"
-        TF_WORKSPACE = "${ENVIRONMENT}"
-        
-        // Terraform version
-        TF_VERSION = '1.5.0'
+        TF_VAR_project_id = 'my-terraform-456814'
+        TF_VAR_region = 'us-central1'
+        TF_VAR_zone = 'us-central1-a'
+        TF_VAR_environment = "${env.BRANCH_NAME == 'main'}"
+        TF_IN_AUTOMATION = 'true'
+        TF_INPUT = 'false'
+    }
+    
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['plan', 'apply', 'destroy'],
+            description: 'Select the Terraform action to perform'
+        )
+        booleanParam(
+            name: 'AUTO_APPROVE',
+            defaultValue: false,
+            description: 'Auto approve the terraform apply/destroy (use with caution)'
+        )
     }
     
     stages {
         stage('Checkout') {
             steps {
-                echo "Checking out source code..."
+                script {
+                    echo "Checking out code from ${env.BRANCH_NAME} branch"
+                }
                 checkout scm
             }
         }
-        stage('Verify Backend Storage') {
-            steps {
-                script {
-                    sh '''
-                        echo "Verifying GCS backend storage..."
-                        
-                        # Check if the state bucket exists
-                        if ! gsutil ls gs://${TF_STATE_BUCKET} &> /dev/null; then
-                            echo "Creating Terraform state bucket: ${TF_STATE_BUCKET}"
-                            gsutil mb -p ${GCP_PROJECT_ID} -l ${GCP_REGION} gs://${TF_STATE_BUCKET}
-                            
-                            # Enable versioning for state file protection
-                            gsutil versioning set on gs://${TF_STATE_BUCKET}
-                            
-                            # Set lifecycle policy to manage old versions
-                            echo '{"lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 90, "isLive": false}}]}}' > lifecycle.json
-                            gsutil lifecycle set lifecycle.json gs://${TF_STATE_BUCKET}
-                            rm lifecycle.json
-                        else
-                            echo "Terraform state bucket already exists: ${TF_STATE_BUCKET}"
-                        fi
-                        
-                        # List bucket contents
-                        echo "Current state files in bucket:"
-                        gsutil ls gs://${TF_STATE_BUCKET}/${TF_STATE_PREFIX}/ || echo "No state files found (first run)"
-                    '''
-                }
-            }
-        }
+        
         
         stage('Terraform Init') {
             steps {
                 script {
+                    echo "Initializing Terraform..."
                     sh '''
-                        echo "Initializing Terraform with GCS backend..."
-                        
-                        # Initialize with backend configuration
-                        terraform init \\
-                            -backend-config="bucket=${TF_STATE_BUCKET}" \\
-                            -backend-config="prefix=${TF_STATE_PREFIX}/${ENVIRONMENT}" \\
-                            -backend-config="project=${GCP_PROJECT_ID}" \\
-                            -backend-config="region=${GCP_REGION}" \\
-                            -reconfigure
-                        
-                        # Select or create workspace
-                        terraform workspace select ${TF_WORKSPACE} || terraform workspace new ${TF_WORKSPACE}
-                        
-                        echo "Current workspace: $(terraform workspace show)"
+                        terraform init -backend-config="bucket=ajitgcpterraform" \
+                                      -backend-config="prefix=terraform/state/${TF_VAR_environment}" \
+                                      -upgrade
                     '''
                 }
             }
@@ -84,12 +52,22 @@ pipeline {
         stage('Terraform Validate') {
             steps {
                 script {
+                    echo "Validating Terraform configuration..."
+                    sh 'terraform validate'
+                }
+            }
+        }
+        
+        stage('Terraform Format Check') {
+            steps {
+                script {
+                    echo "Checking Terraform formatting..."
                     sh '''
-                        echo "Validating Terraform configuration..."
-                        terraform validate
-                        
-                        # Format check
-                        terraform fmt -check=true -diff=true
+                        if ! terraform fmt -check=true -diff=true; then
+                            echo "Terraform files are not properly formatted"
+                            echo "Run 'terraform fmt' to fix formatting issues"
+                            exit 1
+                        fi
                     '''
                 }
             }
@@ -98,142 +76,125 @@ pipeline {
         stage('Terraform Plan') {
             steps {
                 script {
+                    echo "Creating Terraform execution plan..."
                     sh '''
-                        echo "Creating Terraform execution plan..."
-                        
-                        # Create plan with environment-specific variables
-                        terraform plan \\
-                            -var="project_id=${GCP_PROJECT_ID}" \\
-                            -var="region=${GCP_REGION}" \\
-                            -var="environment=${ENVIRONMENT}" \\
-                            -out=tfplan-${ENVIRONMENT}
-                        
-                        # Show plan summary
-                        echo "Plan created for environment: ${ENVIRONMENT}"
-                        terraform show -no-color tfplan-${ENVIRONMENT} > tfplan-${ENVIRONMENT}.txt
+                        terraform plan -detailed-exitcode \
+                                      -var="environment=${TF_VAR_environment}" \
+                                      -out=tfplan
                     '''
-                }
-            }
-        }
-        
-        stage('Security Scan') {
-            steps {
-                script {
-                    sh '''
-                        echo "Running security scan on Terraform plan..."
-                        
-                        # Optional: Use tfsec for security scanning
-                        # if command -v tfsec &> /dev/null; then
-                        #     tfsec . --format json --out tfsec-report.json
-                        # fi
-                        
-                        # Basic validation
-                        echo "Checking for sensitive data exposure..."
-                        if grep -i "password\\|secret\\|key" *.tf; then
-                            echo "WARNING: Potential sensitive data found in .tf files"
-                        fi
-                    '''
-                }
-            }
-        }
-        
-        stage('Terraform Apply Approval') {
-            when {
-                anyOf {
-                    branch 'main'
-                    branch 'develop'
-                }
-            }
-            steps {
-                script {
-                    // Show plan summary before approval
-                    echo "Plan Summary for ${ENVIRONMENT} environment:"
-                    sh "cat tfplan-${ENVIRONMENT}.txt"
-                    
-                    // Manual approval with plan details
-                    input message: "Do you want to apply the Terraform plan for ${ENVIRONMENT} environment?", 
-                          ok: 'Apply',
-                          submitterParameter: 'SUBMITTER',
-                          parameters: [
-                              choice(name: 'CONFIRM', choices: ['No', 'Yes'], description: 'Confirm deployment')
-                          ]
                 }
             }
         }
         
         stage('Terraform Apply') {
             when {
-                anyOf {
-                    branch 'main'
-                    branch 'develop'
-                }
+                expression { params.ACTION == 'apply' }
             }
             steps {
                 script {
-                    sh '''
-                        echo "Applying Terraform configuration for ${ENVIRONMENT} environment..."
-                        echo "Submitter: ${SUBMITTER}"
-                        
-                        # Apply the plan
-                        terraform apply -auto-approve tfplan-${ENVIRONMENT}
-                        
-                        # Show outputs
-                        echo "Deployment completed. Outputs:"
-                        terraform output
-                    '''
+                    if (params.AUTO_APPROVE || env.BRANCH_NAME == 'main') {
+                        echo "Auto-applying Terraform changes..."
+                        sh 'terraform apply -auto-approve tfplan'
+                    } else {
+                        echo "Manual approval required for Terraform apply"
+                        input message: 'Do you want to apply the Terraform plan?', ok: 'Apply'
+                        sh 'terraform apply tfplan'
+                    }
                 }
             }
         }
         
-        stage('Backup State') {
+        stage('Terraform Destroy') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
             steps {
                 script {
+                    echo "WARNING: This will destroy all resources!"
+                    
+                    if (params.AUTO_APPROVE) {
+                        echo "Auto-destroying Terraform resources..."
+                        sh 'terraform destroy -auto-approve'
+                    } else {
+                        input message: 'Are you sure you want to destroy all resources?', ok: 'Destroy'
+                        sh 'terraform destroy'
+                    }
+                }
+            }
+        }
+        
+        stage('Terraform Output') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                script {
+                    echo "Displaying Terraform outputs..."
                     sh '''
-                        echo "Creating backup of current state..."
-                        
-                        # Copy current state to backup location
-                        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                        gsutil cp gs://${TF_STATE_BUCKET}/${TF_STATE_PREFIX}/${ENVIRONMENT}/default.tfstate \\
-                                  gs://${TF_STATE_BUCKET}/backups/${ENVIRONMENT}/terraform-${TIMESTAMP}.tfstate || true
-                        
-                        echo "State backup completed"
+                        terraform output -json > terraform_outputs.json
+                        cat terraform_outputs.json
                     '''
+                    
+                    // Archive the outputs
+                    archiveArtifacts artifacts: 'terraform_outputs.json', fingerprint: true
                 }
             }
         }
     }
     
     post {
+        always {
+            script {
+                echo "Cleaning up workspace..."
+                
+                // Archive Terraform plan file
+                if (fileExists('tfplan')) {
+                    archiveArtifacts artifacts: 'tfplan', fingerprint: true
+                }
+                
+                // Archive state file for backup (optional)
+                if (fileExists('terraform.tfstate')) {
+                    archiveArtifacts artifacts: 'terraform.tfstate', fingerprint: true
+                }
+            }
+        }
         
         success {
-            echo "✅ Terraform deployment completed successfully for ${ENVIRONMENT} environment!"
-            
             script {
-                sh '''
-                    echo "Deployment Summary:"
-                    echo "Environment: ${ENVIRONMENT}"
-                    echo "GCP Project: ${GCP_PROJECT_ID}"
-                    echo "Backend Bucket: ${TF_STATE_BUCKET}"
-                    echo "State Path: ${TF_STATE_PREFIX}/${ENVIRONMENT}"
-                    echo "Workspace: $(terraform workspace show)"
-                '''
+                echo "Pipeline completed successfully!"
+                
+                // Send notification (configure as needed)
+                // emailext (
+                //     subject: "Terraform Pipeline Success - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                //     body: "The Terraform pipeline has completed successfully.\n\nEnvironment: ${env.TF_VAR_environment}\nAction: ${params.ACTION}\nBranch: ${env.BRANCH_NAME}",
+                //     to: "${env.CHANGE_AUTHOR_EMAIL}"
+                // )
             }
         }
         
         failure {
-            echo "❌ Terraform deployment failed for ${ENVIRONMENT} environment!"
-            
             script {
-                sh '''
-                    echo "Failure occurred in ${ENVIRONMENT} environment"
-                    echo "Check the logs above for details"
-                    
-                    # Show current state status
-                    terraform state list || echo "Unable to list state"
-                '''
+                echo "Pipeline failed! Check the logs for details."
+                
+                // Send failure notification
+                // emailext (
+                //     subject: "Terraform Pipeline Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                //     body: "The Terraform pipeline has failed.\n\nEnvironment: ${env.TF_VAR_environment}\nAction: ${params.ACTION}\nBranch: ${env.BRANCH_NAME}\n\nCheck the build logs for more details.",
+                //     to: "${env.CHANGE_AUTHOR_EMAIL}"
+                // )
             }
         }
         
-    
+        cleanup {
+            script {
+                echo "Performing cleanup..."
+                
+                // Clean up sensitive files
+                sh '''
+                    rm -f tfplan
+                    rm -f terraform_outputs.json
+                '''
+            }
+        }
     }
 }
