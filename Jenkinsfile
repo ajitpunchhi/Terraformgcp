@@ -9,7 +9,7 @@ pipeline {
     stages {
         stage('Git Checkout') {
             steps {
-               git "https://github.com/ajitpunchhi/Terraformgcp.git", branch: 'main'
+               git 'https://github.com/ajitpunchhi/Terraformgcp.git', branch: 'main'
             }
         }
         
