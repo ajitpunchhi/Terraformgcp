@@ -9,7 +9,7 @@ pipeline {
     stages {
         stage('Git Checkout') {
             steps {
-               git 'https://${GIT_TOKEN}@github.com/ajitpunchhi/Terraformgcp.git', branch: 'main', credentialsId: 'git-token'
+               git "https://${GIT_TOKEN}@github.com/ajitpunchhi/Terraformgcp.git", branch: "main"
             }
         }
         
