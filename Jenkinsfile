@@ -20,7 +20,7 @@ pipeline {
         )
         booleanParam(
             name: 'AUTO_APPROVE',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Auto approve the terraform apply/destroy (use with caution)'
         )
     }
