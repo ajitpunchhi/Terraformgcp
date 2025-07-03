@@ -10,12 +10,14 @@ pipeline {
     }
 
     stages {
-        stage('Clone Repository') {
+        stage('Checkout Code') {
             steps {
-                git 'https://github.com/ajitpunchhi/Terraformgcp.git'
-                echo 'Repository cloned successfully.'
+                echo 'Checking out code from repository...'
+                git url: 'https://github.com/ajitpunchhi/Terraformgcp.git' branch: 'main'
+                echo 'Code checked out successfully.'
             }
-        } 
+        }
+
         stage('Initialize Terraform') {
             steps {
                 sh '''
