@@ -22,12 +22,11 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Clone Repository') {
             steps {
-                echo 'Cloning repository...'
+                echo 'Cloning Terraform repository...'
                 git url: 'https://github.com/ajitpunchhi/Terraformgcp.git', branch: 'main'
-                // Ensure the repository is cloned to the workspace
             }
 
         stage('Initialize Terraform') {
