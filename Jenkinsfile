@@ -40,11 +40,7 @@ pipeline {
             steps {
                 script {
                     echo "Initializing Terraform..."
-                    sh '''
-                        terraform init -backend-config="bucket=ajitgcpterraform" \
-                                      -backend-config="prefix=terraform/state/${TF_VAR_environment}" \
-                                      -upgrade
-                    '''
+                    sh 'terraform init''
                 }
             }
         }
