@@ -1,55 +1,114 @@
 pipeline {
     agent any
-
+    
     environment {
-        PROJECT_ID = 'my-terraform-456814'  // Change this to your actual project ID
-        REGION     = 'us-central1'          // Change this to your desired region
-        bucket_name = 'ajitgcpterraform' // Change this to your actual bucket name
-        state_file  = 'terraform.tfstate'   // Name of the Terraform state file
-        service_account_key = credentials('gcp-service-account-key') // Jenkins credential ID for GCP service account key
+        // GCP Service Account credentials stored in Jenkins
+        GOOGLE_APPLICATION_CREDENTIALS = credentials('gcp-service-account-key')
+        
+        // GCP Project ID
+        GCP_PROJECT_ID = 'my-terraform-456814'
+        
     }
-
+    
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                echo 'Checking out code from repository...'
-                git url: 'https://github.com/ajitpunchhi/Terraformgcp.git', branch: 'main'
-                echo 'Code checked out successfully.'
+                // Checkout source code from repository
+                checkout scm
             }
         }
-
-        stage('Initialize Terraform') {
+        
+        stage('Terraform Init') {
             steps {
-                sh '''
-                    terraform init \
-                        -backend-config="bucket=${bucket_name}" \
-                        -backend-config="prefix=terraform/state" \
-                        -backend-config="project=${PROJECT_ID}" \
-                        -backend-config="region=${REGION}" \
-                        -backend-config="credentials=${service_account_key}"
-                '''
-                echo 'Terraform initialized successfully.'
+                script {
+                    sh '''
+                        echo "Initializing Terraform..."
+                        terraform init -backend-config="bucket=your-terraform-state-bucket"
+                    '''
+                }
             }
         }
-        stage('Plan Terraform') {
+        
+        stage('Terraform Validate') {
             steps {
-                sh 'terraform plan -out=tfplan'
-                echo 'Terraform plan created successfully.'
+                script {
+                    sh '''
+                        echo "Validating Terraform configuration..."
+                        terraform validate
+                    '''
+                }
             }
         }
-        stage('Apply Terraform') {
+        
+        stage('Terraform Plan') {
             steps {
-                sh 'terraform apply -auto-approve tfplan'
-                echo 'Terraform applied successfully.'
+                script {
+                    sh '''
+                        echo "Creating Terraform execution plan..."
+                        terraform plan -out=tfplan -var="project_id=${GCP_PROJECT_ID}"
+                    '''
+                }
             }
         }
-        stage('Copy State File') {
+        
+        stage('Terraform Apply Approval') {
+            when {
+                branch 'main'
+            }
             steps {
-                sh '''
-                    gsutil cp ${state_file} gs://${bucket_name}/terraform/state/${state_file}
-                '''
-                echo 'Terraform state file copied to GCS bucket successfully.'
+                script {
+                    // Manual approval for production deployments
+                    input message: 'Do you want to apply the Terraform plan?', ok: 'Apply',
+                          submitterParameter: 'SUBMITTER'
+                }
             }
         }
-}
+        
+        stage('Terraform Apply') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh '''
+                        echo "Applying Terraform configuration..."
+                        terraform apply -auto-approve tfplan
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Output') {
+            steps {
+                script {
+                    sh '''
+                        echo "Terraform outputs:"
+                        terraform output
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+              
+        success {
+            echo 'Terraform deployment completed successfully!'
+            
+            // Send notification on success (optional)
+            // slackSend channel: '#deployments', 
+            //          color: 'good', 
+            //          message: "✅ Terraform deployment successful for ${env.JOB_NAME} - ${env.BUILD_NUMBER}"
+        }
+        
+        failure {
+            echo 'Terraform deployment failed!'
+            
+            // Send notification on failure (optional)
+            // slackSend channel: '#deployments', 
+            //          color: 'danger', 
+            //          message: "❌ Terraform deployment failed for ${env.JOB_NAME} - ${env.BUILD_NUMBER}"
+        }
+        
+    }
 }
