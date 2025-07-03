@@ -10,6 +10,19 @@ pipeline {
     }
 
     stages {
+        stage('Setup GCP Credentials') {
+            steps {
+                echo 'Setting up GCP credentials...'
+                withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS
+                        gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
+                        gcloud config set project ${PROJECT_ID}
+                    '''
+                }
+            }
+        }
+        
         stage('Clone Repository') {
             steps {
                 echo 'Cloning repository...'
