@@ -3,13 +3,13 @@ pipeline {
     
     environment {
         GOOGLE_APPLICATION_CREDENTIALS = credentials('gcp-service-account-key')
-	GIT_TOKEN = credentials('git-token')
+
     }
 	
     stages {
         stage('Git Checkout') {
             steps {
-               git "https://${GIT_TOKEN}@github.com/vishal-bulbule/gcp-tf-jenkin.git"
+               git "https://github.com/ajitpunchhi/Terraformgcp.git", branch: 'main',
             }
         }
         
