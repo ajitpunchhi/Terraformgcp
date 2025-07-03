@@ -16,5 +16,38 @@ pipeline {
                 echo 'Repository cloned successfully.'
             }
         } 
+        stage('Initialize Terraform') {
+            steps {
+                sh '''
+                    terraform init \
+                        -backend-config="bucket=${bucket_name}" \
+                        -backend-config="prefix=terraform/state" \
+                        -backend-config="project=${PROJECT_ID}" \
+                        -backend-config="region=${REGION}" \
+                        -backend-config="credentials=${service_account_key}"
+                '''
+                echo 'Terraform initialized successfully.'
+            }
+        }
+        stage('Plan Terraform') {
+            steps {
+                sh 'terraform plan -out=tfplan'
+                echo 'Terraform plan created successfully.'
+            }
+        }
+        stage('Apply Terraform') {
+            steps {
+                sh 'terraform apply -auto-approve tfplan'
+                echo 'Terraform applied successfully.'
+            }
+        }
+        stage('Copy State File') {
+            steps {
+                sh '''
+                    gsutil cp ${state_file} gs://${bucket_name}/terraform/state/${state_file}
+                '''
+                echo 'Terraform state file copied to GCS bucket successfully.'
+            }
+        }
 }
 }
