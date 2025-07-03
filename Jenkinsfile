@@ -28,33 +28,6 @@ pipeline {
                 checkout scm
             }
         }
-        
-        stage('Setup Terraform') {
-            steps {
-                script {
-                    sh '''
-                        echo "Setting up Terraform ${TF_VERSION}..."
-                        
-                        # Check if Terraform is installed
-                        if ! command -v terraform &> /dev/null; then
-                            echo "Installing Terraform ${TF_VERSION}"
-                            wget -q https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
-                            unzip -q terraform_${TF_VERSION}_linux_amd64.zip
-                            sudo mv terraform /usr/local/bin/
-                            rm terraform_${TF_VERSION}_linux_amd64.zip
-                        fi
-                        
-                        # Verify installation
-                        terraform version
-                        
-                        # Authenticate with GCP
-                        gcloud auth activate-service-account --key-file=${GOOGLE_APPLICATION_CREDENTIALS}
-                        gcloud config set project ${GCP_PROJECT_ID}
-                    '''
-                }
-            }
-        }
-        
         stage('Verify Backend Storage') {
             steps {
                 script {
