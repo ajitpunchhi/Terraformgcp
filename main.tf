@@ -1,3 +1,22 @@
+# Create VPC Network
+resource "google_compute_network" "vpc_network" {
+  name                    = var.network_name
+  auto_create_subnetworks = false
+  description             = "Simple VPC network for ${var.environment} environment"
+  
+  depends_on = [
+    google_project_service.compute_api
+  ]
+}
+
+# Enable Compute Engine API
+resource "google_project_service" "compute_api" {
+  project = var.project_id
+  service = "compute.googleapis.com"
+  
+  disable_on_destroy = false
+}
+
 # Create Subnet
 resource "google_compute_subnetwork" "subnet" {
   name          = var.subnet_name
